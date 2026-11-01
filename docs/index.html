@@ -132,7 +132,7 @@ fetch('data.json').then((r) => r.json()).then(init).catch(() => {
 });
 
 function init(data) {
-  const eps = data.episodes.map((r) => ({...r, dt: new Date(r.date), mood: r.sentiment == null ? NaN : r.sentiment, glist: r.guests.split('|').filter(Boolean)}));
+  const eps = data.episodes.map((r) => ({...r, dt: new Date(r.date), like_rate: r.likes / r.views, mood: r.sentiment == null ? NaN : r.sentiment, glist: r.guests.split('|').filter(Boolean)}));
   const fmtN = d3.format(','), fmtC = Intl.NumberFormat('en', {notation: 'compact', maximumFractionDigits: 1});
   const fmtP = d3.format('.1%'), fmtX = (v) => d3.format('.1f')(v) + '×';
   const fmtD = (d) => d3.utcFormat('%b %-d, %Y')(d instanceof Date ? d : new Date(d));
@@ -332,6 +332,7 @@ function init(data) {
       {key: 'date', label: 'Published', asc: true, hide: true, fmt: (r) => fmtD(r.dt)},
       {key: 'views', label: 'Views', num: true, fmt: (r) => fmtC.format(r.views)},
       {key: 'vpd', label: 'Per day', num: true, fmt: (r) => fmtN(Math.round(r.vpd))},
+      {key: 'like_rate', label: 'Like rate', num: true, hide: true, fmt: (r) => fmtP(r.like_rate)},
       {key: 'minutes', label: 'Length', num: true, hide: true, fmt: (r) => Math.round(r.minutes) + ' min'},
       {key: 'comments_per_k', label: 'Comments / 1k', num: true, hide: true, fmt: (r) => d3.format('.1f')(r.comments_per_k)},
       {key: 'mood', label: 'Mood', num: true, hide: true, fmt: (r) => isFinite(r.mood) ? d3.format('+.2f')(r.mood) : '–'},
