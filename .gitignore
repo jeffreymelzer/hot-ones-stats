@@ -1,0 +1,4 @@
+__pycache__/
+.idea/
+# collected YouTube data (re-create with main.py / sentiment.py)
+data/
