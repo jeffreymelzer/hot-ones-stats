@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hot Ones stats</title>
+<meta name="description" content="What drives views on Hot Ones guest interviews: pace, length, guests, title words and comment sentiment.">
+<style>
+  /* layout: one column of cards under a short header; charts full width, bar lists side by side when there is room */
+  :root {
+    --bg: #f7f5f3; --panel: #ffffff; --fg: #231a17; --muted: #6f625c; --line: #e4dcd7;
+    --accent: #c2410c; --dim: #b9aca5; --grid: #ebe4df;
+    --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #17110f; --panel: #211a17; --fg: #f1e9e4; --muted: #a6978f; --line: #382d28; --accent: #fb923c; --dim: #6e5f58; --grid: #2d2420; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--sans); }
+  .wrap { max-width: 72rem; margin: 0 auto; padding: 2rem max(16px, env(safe-area-inset-left)) 4rem max(16px, env(safe-area-inset-right)); display: grid; gap: 1.25rem; }
+  h1 { font: 400 2.2rem/1.15 var(--serif); margin: 0; text-wrap: balance; }
+  h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+  .lede { color: var(--muted); max-width: 62ch; margin: .5rem 0 0; }
+  .lede b { color: var(--fg); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.1rem 1.25rem; min-width: 0; position: relative; }
+  .note { color: var(--muted); font-size: 13px; margin: .2rem 0 .8rem; max-width: 70ch; }
+  .tiles { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+  .big { font: 400 1.9rem/1.2 var(--serif); font-variant-numeric: tabular-nums; }
+  .lbl { color: var(--muted); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+  .pair { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
+  .chart { position: relative; min-height: 320px; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { fill: var(--muted); font: 11px var(--sans); }
+  svg .lab { fill: var(--fg); }
+  .tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.18); padding: .35rem .6rem; font-size: 12px; max-width: 18rem; z-index: 2; }
+  .tip .d { color: var(--muted); }
+  .brow { display: grid; grid-template-columns: minmax(5rem, 9.5rem) 1fr 3.2rem; align-items: center; gap: .5rem; font-size: 13px; padding: .12rem 0; }
+  .brow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track { position: relative; height: 1rem; }
+  .track::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--dim); }
+  .bar { position: absolute; top: .15rem; bottom: .15rem; border-radius: 2px; }
+  .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .bsep { margin: .4rem 0; border-top: 1px dashed var(--line); }
+  .scroll { max-height: 28rem; overflow: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th { position: sticky; top: 0; background: var(--panel); text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none; }
+  th[aria-sort="ascending"]::after { content: " ↑"; } th[aria-sort="descending"]::after { content: " ↓"; }
+  td { padding: .35rem .5rem; border-bottom: 1px solid var(--line); }
+  .n { text-align: right; }
+  td.t { max-width: 26rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  input[type=search] { width: 100%; padding: .45rem .65rem; margin-bottom: .6rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
+  a { color: var(--accent); }
+  footer { color: var(--muted); font-size: 13px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (max-width: 40rem) { .hide-sm { display: none; } h1 { font-size: 1.8rem; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Hot Ones stats</h1>
+    <p class="lede">What drives views on guest interviews? Pace is views per day since upload, so old and new episodes compare fairly. The episode furthest above its neighbors: <b id="top"></b></p>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="card">
+    <h2>Views per day since upload</h2>
+    <p class="note">Each dot is an episode, on a log scale. Labelled dots run furthest above the typical pace of the 30 episodes around them. Pace climbs toward the right partly because new videos collect most of their views early, so a recent episode's views per day is inflated until it settles.</p>
+    <div class="chart" id="scatter"></div>
+  </section>
+
+  <section class="card">
+    <h2>Length vs. pace</h2>
+    <p class="note">Views per day against video length in minutes, both on log scales.</p>
+    <div class="chart" id="len"></div>
+  </section>
+
+  <section class="pair">
+    <div class="card">
+      <h2>What goes with pace</h2>
+      <p class="note">Rank correlation (Spearman) of views per day with each measure. Right of the line: more of it goes with a higher pace. Zero: no relationship.</p>
+      <div id="corr"></div>
+    </div>
+    <div class="card">
+      <h2>Title words</h2>
+      <p class="note">Words in at least 4 titles, by the median pace of those episodes against their neighbors in time. Mostly guest first names, so read it as who, not wording.</p>
+      <div id="words"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Comment mood</h2>
+    <p class="note">VADER sentiment (−1 to +1) averaged over each episode's top comments, mostly jokes and praise, so everything skews positive. Sarcasm and edgy humor read as negative, so a low score does not mean a disliked episode.</p>
+    <div id="mood"></div>
+  </section>
+
+  <section class="card">
+    <h2>Most frequent guests</h2>
+    <p class="note">Guests with more than one interview. Names come from the video descriptions; joint interviews count for each guest. Click a column to sort.</p>
+    <div class="scroll"><table><thead><tr id="ghead"></tr></thead><tbody id="gbody"></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Cumulative views</h2>
+    <p class="note">Running total of views by publish date, in millions.</p>
+    <div class="chart" id="cum"></div>
+  </section>
+
+  <section class="card">
+    <h2>All episodes</h2>
+    <p class="note">Sort by any column. "Vs neighbors" is views per day divided by the median of the 30 episodes around it.</p>
+    <input type="search" id="q" placeholder="Search guests" aria-label="Search guests">
+    <div class="scroll"><table><thead><tr id="ehead"></tr></thead><tbody id="ebody"></tbody></table></div>
+  </section>
+
+  <footer>
+    Guest interviews only: titles with "wings" or "Holiday Extravaganza", 10+ minutes, not host-led or compilations. Data from the YouTube Data API<span id="built"></span>. Code and method on <a href="https://github.com/jeffreymelzer/hot-ones-stats">GitHub</a>.
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+fetch('data.json').then((r) => r.json()).then(init).catch(() => {
+  document.querySelector('.lede').textContent = 'Could not load data.json.';
+});
+
+function init(data) {
+  const eps = data.episodes.map((r) => ({...r, dt: new Date(r.date), mood: r.sentiment == null ? NaN : r.sentiment, glist: r.guests.split('|').filter(Boolean)}));
+  const fmtN = d3.format(','), fmtC = Intl.NumberFormat('en', {notation: 'compact', maximumFractionDigits: 1});
+  const fmtP = d3.format('.1%'), fmtX = (v) => d3.format('.1f')(v) + '×';
+  const fmtD = (d) => d3.utcFormat('%b %-d, %Y')(d instanceof Date ? d : new Date(d));
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const med = (a) => { const s = a.filter(isFinite).sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const short = (t) => t.split(/ (?:While|Eating|Eats|Savagely|Lose|Calls|Go|Needs|Catches|Doesn’t|Takes|Tries|Feels|Has|Falls|Stays|Searches|Grasps)/)[0];
+
+  document.getElementById('built').textContent = data.built ? ', refreshed ' + data.built : '';
+
+  // headline
+  const top = eps.reduce((a, b) => (b.vs_trend > a.vs_trend ? b : a));
+  document.getElementById('top').textContent = `${short(top.title)} (${fmtX(top.vs_trend)})`;
+  const tiles = [['Episodes', fmtN(eps.length)], ['Total views', fmtC.format(d3.sum(eps, (r) => r.views))],
+    ['Median views per day', fmtN(Math.round(med(eps.map((r) => r.vpd))))], ['Median like rate', fmtP(med(eps.map((r) => r.likes / r.views)))],
+    ['Median length', Math.round(med(eps.map((r) => r.minutes))) + ' min']];
+  document.getElementById('tiles').replaceChildren(...tiles.map(([l, v]) => { const c = el('div', 'card'); c.append(el('div', 'lbl', l), el('div', 'big', v)); return c; }));
+
+  // tooltip
+  const tipFor = (host) => {
+    const t = el('div', 'tip'); t.hidden = true; host.append(t);
+    return {show(lines, x, y) { t.replaceChildren(...lines.map(([c, s]) => el('div', c, s))); t.hidden = false; const w = host.clientWidth; t.style.left = Math.max(0, Math.min(w - t.offsetWidth, x + 12)) + 'px'; t.style.top = Math.max(0, y - 10) + 'px'; }, hide() { t.hidden = true; }};
+  };
+
+  function axes(svg, x, y, W, H, m, xAxis, yAxis) {
+    svg.append('g').attr('transform', `translate(0,${H - m.b})`).call(xAxis.tickSizeOuter(0));
+    svg.append('g').attr('transform', `translate(${m.l},0)`).call(yAxis.tickSize(-(W - m.l - m.r)))
+      .call((g) => { g.selectAll('line').attr('stroke', css('--grid')); g.select('.domain').remove(); });
+    svg.selectAll('.domain').attr('stroke', css('--dim'));
+    svg.selectAll('.tick text').attr('font-size', null).attr('font-family', null);
+  }
+  const mkSvg = (host, W, H) => d3.select(host).insert('svg', ':first-child').attr('viewBox', `0 0 ${W} ${H}`);
+
+  function scatter() {
+    const host = document.getElementById('scatter'); host.querySelector('svg')?.remove();
+    const W = host.clientWidth || 700, H = 320, m = {t: 12, r: 16, b: 28, l: 48};
+    const x = d3.scaleUtc(d3.extent(eps, (r) => r.dt), [m.l, W - m.r]);
+    const y = d3.scaleLog([d3.min(eps, (r) => r.vpd) * 0.8, d3.max(eps, (r) => r.vpd) * 1.2], [H - m.b, m.t]);
+    const svg = mkSvg(host, W, H);
+    axes(svg, x, y, W, H, m, d3.axisBottom(x).ticks(Math.max(2, W / 110)), d3.axisLeft(y).ticks(5, '~s'));
+    const hot = new Set([...eps].sort((a, b) => b.vs_trend - a.vs_trend).slice(0, 8).map((r) => r.id));
+    const T = host._tip || (host._tip = tipFor(host));
+    svg.append('g').selectAll('circle').data(eps).join('circle')
+      .attr('cx', (r) => x(r.dt)).attr('cy', (r) => y(r.vpd)).attr('r', (r) => hot.has(r.id) ? 5 : 3.5)
+      .attr('fill', (r) => hot.has(r.id) ? css('--accent') : css('--dim')).attr('fill-opacity', (r) => hot.has(r.id) ? 1 : .7)
+      .on('mousemove', (ev, r) => { const [px, py] = d3.pointer(ev, host); T.show([['', r.title], ['d', fmtD(r.dt)], ['', `${fmtN(Math.round(r.vpd))} views/day · ${fmtC.format(r.views)} total`]], px, py); })
+      .on('mouseleave', () => T.hide());
+    svg.append('g').selectAll('text').data(eps.filter((r) => hot.has(r.id))).join('text').attr('class', 'lab')
+      .attr('x', (r) => x(r.dt) > W - 130 ? x(r.dt) - 8 : x(r.dt) + 8).attr('y', (r) => y(r.vpd) + 4)
+      .attr('text-anchor', (r) => x(r.dt) > W - 130 ? 'end' : 'start').text((r) => short(r.title));
+  }
+
+  function lenChart() {
+    const host = document.getElementById('len'); host.querySelector('svg')?.remove();
+    const d = eps.filter((r) => r.minutes > 0 && r.vpd > 0);
+    const W = host.clientWidth || 700, H = 320, m = {t: 12, r: 16, b: 34, l: 48};
+    const x = d3.scaleLog(d3.extent(d, (r) => r.minutes).map((v, i) => v * (i ? 1.15 : 0.87)), [m.l, W - m.r]);
+    const y = d3.scaleLog([d3.min(d, (r) => r.vpd) * 0.8, d3.max(d, (r) => r.vpd) * 1.2], [H - m.b, m.t]);
+    const svg = mkSvg(host, W, H);
+    axes(svg, x, y, W, H, m, d3.axisBottom(x).tickValues([10, 20, 40, 100, 300].filter((v) => v >= x.domain()[0] && v <= x.domain()[1])).tickFormat((v) => v + ' min'), d3.axisLeft(y).ticks(5, '~s'));
+    const T = host._tip || (host._tip = tipFor(host));
+    svg.append('g').selectAll('circle').data(d).join('circle').attr('cx', (r) => x(r.minutes)).attr('cy', (r) => y(r.vpd)).attr('r', 3.5)
+      .attr('fill', css('--accent')).attr('fill-opacity', .5)
+      .on('mousemove', (ev, r) => { const [px, py] = d3.pointer(ev, host); T.show([['', r.title], ['d', fmtD(r.dt)], ['', `${Math.round(r.minutes)} min · ${fmtN(Math.round(r.vpd))} views/day`]], px, py); })
+      .on('mouseleave', () => T.hide());
+  }
+
+  function cumChart() {
+    const host = document.getElementById('cum'); host.querySelector('svg')?.remove();
+    const W = host.clientWidth || 700, H = 320, m = {t: 12, r: 56, b: 28, l: 44};
+    let s = 0; const d = eps.map((r) => ({dt: r.dt, v: (s += r.views) / 1e6}));
+    const x = d3.scaleUtc(d3.extent(d, (r) => r.dt), [m.l, W - m.r]);
+    const y = d3.scaleLinear([0, d3.max(d, (r) => r.v)], [H - m.b, m.t]).nice();
+    const svg = mkSvg(host, W, H);
+    axes(svg, x, y, W, H, m, d3.axisBottom(x).ticks(Math.max(2, W / 110)), d3.axisLeft(y).ticks(5));
+    svg.append('path').datum(d).attr('fill', 'none').attr('stroke', css('--accent')).attr('stroke-width', 2).attr('stroke-linejoin', 'round')
+      .attr('d', d3.line().x((r) => x(r.dt)).y((r) => y(r.v)));
+    const last = d[d.length - 1];
+    svg.append('circle').attr('cx', x(last.dt)).attr('cy', y(last.v)).attr('r', 4).attr('fill', css('--accent'));
+    svg.append('text').attr('class', 'lab').attr('x', x(last.dt) + 8).attr('y', y(last.v) + 4).text(Math.round(last.v) + 'M');
+    const bis = d3.bisector((r) => r.dt).center, T = host._tip || (host._tip = tipFor(host));
+    svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', W - m.l - m.r).attr('height', H - m.t - m.b).attr('fill', 'transparent')
+      .on('mousemove', (ev) => { const [px, py] = d3.pointer(ev, host); const r = d[bis(d, x.invert(d3.pointer(ev, svg.node())[0]))]; T.show([['d', fmtD(r.dt)], ['', `${d3.format('.0f')(r.v)}M views so far`]], px, py); })
+      .on('mouseleave', () => T.hide());
+  }
+
+  // diverging bar rows around a center line; frac in [-1, 1]
+  const barRow = (name, frac, text, color) => {
+    const row = el('div', 'brow'), nm = el('span', 'nm', name), track = el('span', 'track'), bar = el('span', 'bar'), v = el('span', 'v', text);
+    nm.title = name;
+    const w = Math.min(50, Math.abs(frac) * 50);
+    bar.style.width = w + '%'; bar.style.left = frac >= 0 ? '50%' : (50 - w) + '%'; bar.style.background = color;
+    track.append(bar); row.append(nm, track, v); return row;
+  };
+
+  function bars() {
+    // correlations
+    const rank = (a) => { const r = []; a.map((v, i) => [v, i]).sort((x, y) => x[0] - y[0]).forEach(([, i], k) => { r[i] = k; }); return r; };
+    const rho = (a, b) => { const x = rank(a), y = rank(b), n = x.length, mx = (n - 1) / 2; let sxy = 0, sxx = 0, syy = 0; for (let i = 0; i < n; i++) { sxy += (x[i] - mx) * (y[i] - mx); sxx += (x[i] - mx) ** 2; syy += (y[i] - mx) ** 2; } return sxy / Math.sqrt(sxx * syy); };
+    const rows = eps.filter((r) => isFinite(r.mood));
+    const facts = [['Title length', (r) => r.title.length], ['Video length', (r) => r.minutes], ['Like rate', (r) => r.likes / r.views], ['Comments per 1k views', (r) => r.comments_per_k], ['Comment sentiment', (r) => r.mood], ['Newer upload', (r) => +r.dt]];
+    document.getElementById('corr').replaceChildren(...facts.map(([n, g]) => { const c = rho(rows.map((r) => r.vpd), rows.map(g)); return barRow(n, c, (c > 0 ? '+' : '') + d3.format('.2f')(c), c >= 0 ? css('--accent') : css('--dim')); }));
+
+    // title words
+    // pace against neighbors (vs_trend), so recent episodes' inflated views per day don't favor their words
+    const stop = new Set(['and', 'the', 'for', 'with', 'his', 'her', 'from', 'into', 'about', 'that', 'this', 'not', 'out', 'back', 'through']);
+    const by = new Map();
+    eps.forEach((r) => new Set((r.title.toLowerCase().match(/[a-z’']+/g) || []).filter((w) => w.length > 2 && !stop.has(w))).forEach((w) => { if (!by.has(w)) by.set(w, []); by.get(w).push(r.vs_trend); }));
+    const words = [...by].filter(([, v]) => v.length >= 4 && v.length < eps.length * 0.4).map(([w, v]) => ({w, n: v.length, ratio: med(v)})).sort((a, b) => b.ratio - a.ratio);
+    const k = Math.min(8, Math.floor(words.length / 2));
+    const wr = (r) => barRow(`${r.w} (${r.n})`, Math.log2(r.ratio) / 3, fmtX(r.ratio), r.ratio >= 1 ? css('--accent') : css('--dim'));
+    document.getElementById('words').replaceChildren(...words.slice(0, k).map(wr), el('div', 'bsep'), ...words.slice(-k).map(wr));
+
+    // comment mood
+    const ok = rows.slice().sort((a, b) => b.mood - a.mood);
+    const mr = (r) => barRow(short(r.title), r.mood, d3.format('+.2f')(r.mood), r.mood >= 0.4 ? css('--accent') : css('--dim'));
+    document.getElementById('mood').replaceChildren(...ok.slice(0, 6).map(mr), el('div', 'bsep'), ...ok.slice(-6).map(mr));
+  }
+
+  // sortable tables
+  function sortable(headId, bodyId, cols, rows, state, searchFn) {
+    const head = document.getElementById(headId), body = document.getElementById(bodyId);
+    head.replaceChildren(...cols.map((c) => {
+      const th = el('th', (c.num ? 'n ' : '') + (c.hide ? 'hide-sm' : ''), c.label); th.tabIndex = 0;
+      th.setAttribute('aria-sort', state.key === c.key ? (state.dir > 0 ? 'ascending' : 'descending') : 'none');
+      const go = () => { state.dir = state.key === c.key ? -state.dir : (c.asc ? 1 : -1); state.key = c.key; sortable(headId, bodyId, cols, rows, state, searchFn); };
+      th.onclick = go; th.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+      return th;
+    }));
+    const list = rows.filter((r) => !searchFn || searchFn(r)).sort((a, b) => ((a[state.key] > b[state.key]) - (a[state.key] < b[state.key])) * state.dir || (state.tie ? state.tie(a, b) : 0));
+    body.replaceChildren(...list.map((r) => { const tr = el('tr'); cols.forEach((c) => { const td = el('td', (c.num ? 'n ' : '') + (c.hide ? 'hide-sm ' : '') + (c.cls || ''), c.fmt(r)); if (c.cls === 't') td.title = r[c.key]; tr.append(td); }); return tr; }));
+  }
+
+  function guestsTable() {
+    const by = new Map();
+    eps.forEach((r) => r.glist.forEach((g) => { if (!by.has(g)) by.set(g, []); by.get(g).push(r); }));
+    const rows = [...by].filter(([, v]) => v.length >= 2).map(([guest, v]) => ({guest, n: v.length, views: d3.sum(v, (r) => r.views), mean_vpd: d3.mean(v, (r) => r.vpd), first: d3.min(v, (r) => r.dt.getUTCFullYear()), last: d3.max(v, (r) => r.dt.getUTCFullYear())}));
+    const cols = [
+      {key: 'guest', label: 'Guest', asc: true, fmt: (r) => r.guest},
+      {key: 'n', label: 'Interviews', num: true, fmt: (r) => r.n},
+      {key: 'views', label: 'Total views', num: true, fmt: (r) => fmtC.format(r.views)},
+      {key: 'mean_vpd', label: 'Avg per day', num: true, hide: true, fmt: (r) => fmtN(Math.round(r.mean_vpd))},
+      {key: 'first', label: 'Years', num: true, hide: true, asc: true, fmt: (r) => r.first === r.last ? r.first : r.first + '–' + r.last}];
+    sortable('ghead', 'gbody', cols, rows, {key: 'n', dir: -1, tie: (a, b) => b.views - a.views});
+  }
+
+  function episodesTable() {
+    const cols = [
+      {key: 'title', label: 'Episode', asc: true, cls: 't', fmt: (r) => r.title},
+      {key: 'date', label: 'Published', asc: true, hide: true, fmt: (r) => fmtD(r.dt)},
+      {key: 'views', label: 'Views', num: true, fmt: (r) => fmtC.format(r.views)},
+      {key: 'vpd', label: 'Per day', num: true, fmt: (r) => fmtN(Math.round(r.vpd))},
+      {key: 'minutes', label: 'Length', num: true, hide: true, fmt: (r) => Math.round(r.minutes) + ' min'},
+      {key: 'comments_per_k', label: 'Comments / 1k', num: true, hide: true, fmt: (r) => d3.format('.1f')(r.comments_per_k)},
+      {key: 'mood', label: 'Mood', num: true, hide: true, fmt: (r) => isFinite(r.mood) ? d3.format('+.2f')(r.mood) : '–'},
+      {key: 'vs_trend', label: 'Vs neighbors', num: true, fmt: (r) => fmtX(r.vs_trend)}];
+    let q = '';
+    const state = {key: 'views', dir: -1};
+    const run = () => sortable('ehead', 'ebody', cols, eps, state, (r) => !q || r.title.toLowerCase().includes(q));
+    document.getElementById('q').addEventListener('input', (e) => { q = e.target.value.trim().toLowerCase(); run(); });
+    run();
+  }
+
+  const draw = () => { scatter(); lenChart(); cumChart(); };
+  bars(); guestsTable(); episodesTable(); draw();
+  let w = innerWidth; addEventListener('resize', () => { if (innerWidth !== w) { w = innerWidth; draw(); } });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { draw(); bars(); });
+}
+</script>
+</body>
+</html>
