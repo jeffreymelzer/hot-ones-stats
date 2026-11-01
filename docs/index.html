@@ -184,12 +184,16 @@ function init(data) {
     const placed = [], labels = [], shown = new Map();
     [...d.filter((r) => hi.has(r.id)).sort((a, b) => o.get(b) - o.get(a)), ...d.filter((r) => lo.has(r.id)).sort((a, b) => o.get(a) - o.get(b))].forEach((r) => {
       const t = nm(r), w = t.length * 5.7 + 6, px = x(r.dt), py = y(o.get(r));
-      const left = px + 8 + w > W - 4;
-      const box = {x0: left ? px - 8 - w : px + 8, y0: py - 7};
-      box.x1 = box.x0 + w; box.y1 = py + 7;
-      if (placed.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) return;
-      placed.push(box); shown.set(r.id, hi.has(r.id));
-      labels.push({t, left, px, py});
+      // try beside the dot, then nudged up or down, on the right and then the left, before giving up
+      for (const [side, dy] of [[1, 0], [1, -13], [1, 13], [-1, 0], [-1, -13], [-1, 13], [1, -26], [1, 26], [-1, -26], [-1, 26]]) {
+        const left = side < 0, x0 = left ? px - 8 - w : px + 8;
+        if (x0 < m.l - 4 || x0 + w > W - 2) continue;
+        const box = {x0, x1: x0 + w, y0: py + dy - 7, y1: py + dy + 7};
+        if (placed.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) continue;
+        placed.push(box); shown.set(r.id, hi.has(r.id));
+        labels.push({t, left, px, py, dy});
+        break;
+      }
     });
     const T = host._tip || (host._tip = tipFor(host));
     svg.append('g').selectAll('circle').data(d).join('circle')
@@ -198,7 +202,8 @@ function init(data) {
       .on('mousemove', (ev, r) => { const [px, py] = d3.pointer(ev, host); T.show([['', r.title], ['d', fmtD(r.dt)], ['', o.tip(r)]], px, py); })
       .on('mouseleave', () => T.hide());
     svg.append('g').selectAll('text').data(labels).join('text').attr('class', 'lab')
-      .attr('x', (l) => l.left ? l.px - 8 : l.px + 8).attr('y', (l) => l.py + 4).attr('text-anchor', (l) => l.left ? 'end' : 'start').text((l) => l.t);
+      .attr('x', (l) => l.left ? l.px - 8 : l.px + 8).attr('y', (l) => l.py + l.dy + 4).attr('text-anchor', (l) => l.left ? 'end' : 'start').text((l) => l.t);
+    return {asked: hi.size + lo.size, shown: labels.length};
   }
 
   const topBy = (f, n) => (d) => [...d].sort((a, b) => f(b) - f(a)).slice(0, n);
@@ -219,8 +224,9 @@ function init(data) {
   };
   let metric = 'vpd';
   const scatter = () => {
-    document.getElementById('metric-note').textContent = 'Each dot is an episode. ' + plots[metric].note;
-    metricScatter('c_scatter', plots[metric]);
+    const r = metricScatter('c_scatter', plots[metric]);
+    document.getElementById('metric-note').textContent = 'Each dot is an episode. ' + plots[metric].note
+      + (r.shown < r.asked ? ` Some labels are left off for lack of room (${r.shown} of ${r.asked} shown); widen the window to see them all.` : '');
   };
   const sel = document.getElementById('metric');
   sel.replaceChildren(...Object.entries(plots).map(([k, p]) => { const o = el('option', '', p.label); o.value = k; return o; }));
