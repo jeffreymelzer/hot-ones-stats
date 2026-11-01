@@ -50,6 +50,12 @@
   th[aria-sort="ascending"]::after { content: " ↑"; } th[aria-sort="descending"]::after { content: " ↓"; }
   td { padding: .35rem .5rem; border-bottom: 1px solid var(--line); }
   .n { text-align: right; }
+  /* narrow screens: every column stays, the table scrolls sideways, and the first column is pinned */
+  .scroll table { min-width: 34rem; }
+  .scroll table:has(#ebody) { min-width: 52rem; }
+  .scroll th:first-child, .scroll td:first-child { position: sticky; left: 0; background: var(--panel); z-index: 1; }
+  .scroll th:first-child { z-index: 2; }
+  @media (max-width: 40rem) { .scroll th:first-child, .scroll td:first-child { width: 10rem; min-width: 10rem; max-width: 10rem; } .scroll td:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
   td.t { max-width: 26rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   input[type=search] { width: 100%; padding: .45rem .65rem; margin-bottom: .6rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
   a { color: var(--accent); }
@@ -321,21 +327,21 @@ function init(data) {
       {key: 'guest', label: 'Guest', asc: true, fmt: (r) => r.guest},
       {key: 'n', label: 'Interviews', num: true, fmt: (r) => r.n},
       {key: 'views', label: 'Total views', num: true, fmt: (r) => fmtC.format(r.views)},
-      {key: 'mean_vpd', label: 'Avg per day', num: true, hide: true, fmt: (r) => fmtN(Math.round(r.mean_vpd))},
-      {key: 'first', label: 'Years', num: true, hide: true, asc: true, fmt: (r) => r.first === r.last ? r.first : r.first + '–' + r.last}];
+      {key: 'mean_vpd', label: 'Avg per day', num: true, fmt: (r) => fmtN(Math.round(r.mean_vpd))},
+      {key: 'first', label: 'Years', num: true, asc: true, fmt: (r) => r.first === r.last ? r.first : r.first + '–' + r.last}];
     sortable('ghead', 'gbody', cols, rows, {key: 'n', dir: -1, tie: (a, b) => b.views - a.views});
   }
 
   function episodesTable() {
     const cols = [
       {key: 'title', label: 'Episode', asc: true, cls: 't', fmt: (r) => r.title},
-      {key: 'date', label: 'Published', asc: true, hide: true, fmt: (r) => fmtD(r.dt)},
+      {key: 'date', label: 'Published', asc: true, fmt: (r) => fmtD(r.dt)},
       {key: 'views', label: 'Views', num: true, fmt: (r) => fmtC.format(r.views)},
       {key: 'vpd', label: 'Per day', num: true, fmt: (r) => fmtN(Math.round(r.vpd))},
-      {key: 'like_rate', label: 'Like rate', num: true, hide: true, fmt: (r) => fmtP(r.like_rate)},
-      {key: 'minutes', label: 'Length', num: true, hide: true, fmt: (r) => Math.round(r.minutes) + ' min'},
-      {key: 'comments_per_k', label: 'Comments / 1k', num: true, hide: true, fmt: (r) => d3.format('.1f')(r.comments_per_k)},
-      {key: 'mood', label: 'Mood', num: true, hide: true, fmt: (r) => isFinite(r.mood) ? d3.format('+.2f')(r.mood) : '–'},
+      {key: 'like_rate', label: 'Like rate', num: true, fmt: (r) => fmtP(r.like_rate)},
+      {key: 'minutes', label: 'Length', num: true, fmt: (r) => Math.round(r.minutes) + ' min'},
+      {key: 'comments_per_k', label: 'Comments / 1k', num: true, fmt: (r) => d3.format('.1f')(r.comments_per_k)},
+      {key: 'mood', label: 'Mood', num: true, fmt: (r) => isFinite(r.mood) ? d3.format('+.2f')(r.mood) : '–'},
       {key: 'vs_trend', label: 'Vs neighbors', num: true, fmt: (r) => fmtX(r.vs_trend)}];
     let q = '';
     const state = {key: 'views', dir: -1};
