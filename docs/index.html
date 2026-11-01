@@ -29,6 +29,8 @@
   .big { font: 400 1.9rem/1.2 var(--serif); font-variant-numeric: tabular-nums; }
   .lbl { color: var(--muted); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
   .pair { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
+  .head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
+  select { padding: .35rem .6rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; font-size: 14px; max-width: 100%; }
   .chart { position: relative; min-height: 320px; }
   svg { display: block; width: 100%; height: auto; }
   svg text { fill: var(--muted); font: 11px var(--sans); }
@@ -66,9 +68,12 @@
   <section class="tiles" id="tiles"></section>
 
   <section class="card">
-    <h2>Views per day since upload</h2>
-    <p class="note">Each dot is an episode, on a log scale. Labelled dots run furthest above the typical pace of the 30 episodes around them. Pace climbs toward the right partly because new videos collect most of their views early, so a recent episode's views per day is inflated until it settles.</p>
-    <div class="chart" id="scatter"></div>
+    <div class="head">
+      <h2>Episodes over time</h2>
+      <select id="metric" aria-label="Measure to plot"></select>
+    </div>
+    <p class="note" id="metric-note"></p>
+    <div class="chart" id="c_scatter"></div>
   </section>
 
   <section class="card">
@@ -136,11 +141,13 @@ function init(data) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const short = (t) => t.split(/ (?:While|Eating|Eats|Savagely|Lose|Calls|Go|Needs|Catches|Doesn’t|Takes|Tries|Feels|Has|Falls|Stays|Searches|Grasps)/)[0];
 
+  const nm = (r) => r.glist.length ? r.glist.join(' & ') : short(r.title);  // guest names from the descriptions
+
   document.getElementById('built').textContent = data.built ? ', refreshed ' + data.built : '';
 
   // headline
   const top = eps.reduce((a, b) => (b.vs_trend > a.vs_trend ? b : a));
-  document.getElementById('top').textContent = `${short(top.title)} (${fmtX(top.vs_trend)})`;
+  document.getElementById('top').textContent = `${nm(top)} (${fmtX(top.vs_trend)})`;
   const tiles = [['Episodes', fmtN(eps.length)], ['Total views', fmtC.format(d3.sum(eps, (r) => r.views))],
     ['Median views per day', fmtN(Math.round(med(eps.map((r) => r.vpd))))], ['Median like rate', fmtP(med(eps.map((r) => r.likes / r.views)))],
     ['Median length', Math.round(med(eps.map((r) => r.minutes))) + ' min']];
@@ -161,24 +168,63 @@ function init(data) {
   }
   const mkSvg = (host, W, H) => d3.select(host).insert('svg', ':first-child').attr('viewBox', `0 0 ${W} ${H}`);
 
-  function scatter() {
-    const host = document.getElementById('scatter'); host.querySelector('svg')?.remove();
-    const W = host.clientWidth || 700, H = 320, m = {t: 12, r: 16, b: 28, l: 48};
-    const x = d3.scaleUtc(d3.extent(eps, (r) => r.dt), [m.l, W - m.r]);
-    const y = d3.scaleLog([d3.min(eps, (r) => r.vpd) * 0.8, d3.max(eps, (r) => r.vpd) * 1.2], [H - m.b, m.t]);
+  // Scatter of one measure over publish date. `hi` / `lo` are the episodes to label (highlighted in the accent / dim color).
+  // Labels that would collide with an already placed one are skipped.
+  function metricScatter(id, o) {
+    const host = document.getElementById(id); host.querySelector('svg')?.remove();
+    const W = host.clientWidth || 700, H = o.height || 320, m = {t: 12, r: 16, b: 28, l: o.left || 48};
+    const d = eps.filter((r) => isFinite(o.get(r)) && (!o.log || o.get(r) > 0));
+    const x = d3.scaleUtc(d3.extent(d, (r) => r.dt), [m.l, W - m.r]);
+    const ext = d3.extent(d, o.get);
+    const y = o.log ? d3.scaleLog([ext[0] * 0.8, ext[1] * 1.2], [H - m.b, m.t]) : d3.scaleLinear([Math.min(0, ext[0]), ext[1]], [H - m.b, m.t]).nice();
     const svg = mkSvg(host, W, H);
-    axes(svg, x, y, W, H, m, d3.axisBottom(x).ticks(Math.max(2, W / 110)), d3.axisLeft(y).ticks(5, '~s'));
-    const hot = new Set([...eps].sort((a, b) => b.vs_trend - a.vs_trend).slice(0, 8).map((r) => r.id));
+    axes(svg, x, y, W, H, m, d3.axisBottom(x).ticks(Math.max(2, W / 110)), o.log ? d3.axisLeft(y).ticks(5, '~s') : d3.axisLeft(y).ticks(5).tickFormat(o.tick));
+    const hi = new Set((o.hi ? o.hi(d) : []).map((r) => r.id)), lo = new Set((o.lo ? o.lo(d) : []).map((r) => r.id));
+    // place labels first, most extreme first; a label that would collide with a placed one is dropped, and so is its highlight
+    const placed = [], labels = [], shown = new Map();
+    [...d.filter((r) => hi.has(r.id)).sort((a, b) => o.get(b) - o.get(a)), ...d.filter((r) => lo.has(r.id)).sort((a, b) => o.get(a) - o.get(b))].forEach((r) => {
+      const t = nm(r), w = t.length * 5.7 + 6, px = x(r.dt), py = y(o.get(r));
+      const left = px + 8 + w > W - 4;
+      const box = {x0: left ? px - 8 - w : px + 8, y0: py - 7};
+      box.x1 = box.x0 + w; box.y1 = py + 7;
+      if (placed.some((b) => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) return;
+      placed.push(box); shown.set(r.id, hi.has(r.id));
+      labels.push({t, left, px, py});
+    });
     const T = host._tip || (host._tip = tipFor(host));
-    svg.append('g').selectAll('circle').data(eps).join('circle')
-      .attr('cx', (r) => x(r.dt)).attr('cy', (r) => y(r.vpd)).attr('r', (r) => hot.has(r.id) ? 5 : 3.5)
-      .attr('fill', (r) => hot.has(r.id) ? css('--accent') : css('--dim')).attr('fill-opacity', (r) => hot.has(r.id) ? 1 : .7)
-      .on('mousemove', (ev, r) => { const [px, py] = d3.pointer(ev, host); T.show([['', r.title], ['d', fmtD(r.dt)], ['', `${fmtN(Math.round(r.vpd))} views/day · ${fmtC.format(r.views)} total`]], px, py); })
+    svg.append('g').selectAll('circle').data(d).join('circle')
+      .attr('cx', (r) => x(r.dt)).attr('cy', (r) => y(o.get(r))).attr('r', (r) => shown.has(r.id) ? 5 : 3.5)
+      .attr('fill', (r) => shown.get(r.id) ? css('--accent') : css('--dim')).attr('fill-opacity', (r) => shown.has(r.id) ? 1 : .7)
+      .on('mousemove', (ev, r) => { const [px, py] = d3.pointer(ev, host); T.show([['', r.title], ['d', fmtD(r.dt)], ['', o.tip(r)]], px, py); })
       .on('mouseleave', () => T.hide());
-    svg.append('g').selectAll('text').data(eps.filter((r) => hot.has(r.id))).join('text').attr('class', 'lab')
-      .attr('x', (r) => x(r.dt) > W - 130 ? x(r.dt) - 8 : x(r.dt) + 8).attr('y', (r) => y(r.vpd) + 4)
-      .attr('text-anchor', (r) => x(r.dt) > W - 130 ? 'end' : 'start').text((r) => short(r.title));
+    svg.append('g').selectAll('text').data(labels).join('text').attr('class', 'lab')
+      .attr('x', (l) => l.left ? l.px - 8 : l.px + 8).attr('y', (l) => l.py + 4).attr('text-anchor', (l) => l.left ? 'end' : 'start').text((l) => l.t);
   }
+
+  const topBy = (f, n) => (d) => [...d].sort((a, b) => f(b) - f(a)).slice(0, n);
+  const botBy = (f, n) => (d) => [...d].sort((a, b) => f(a) - f(b)).slice(0, n);
+  const plots = {
+    vpd: {label: 'Views per day since upload', get: (r) => r.vpd, log: true, hi: topBy((r) => r.vs_trend, 8), tip: (r) => `${fmtN(Math.round(r.vpd))} views/day · ${fmtC.format(r.views)} total`,
+      note: 'Log scale. Labelled: the episodes furthest above the typical pace of the 30 around them. Pace climbs toward the right partly because new videos collect most of their views early, so a recent episode\'s views per day is inflated until it settles.'},
+    likes: {label: 'Like rate', get: (r) => r.likes / r.views, tick: d3.format('.0%'), hi: topBy((r) => r.likes / r.views, 6), tip: (r) => `${fmtP(r.likes / r.views)} like rate · ${fmtC.format(r.likes)} likes`,
+      note: 'Likes divided by views. Labelled: the six highest.'},
+    comm: {label: 'Comments per 1k views', get: (r) => r.comments_per_k, tick: d3.format('.0f'), hi: topBy((r) => r.comments_per_k, 6), tip: (r) => `${d3.format('.1f')(r.comments_per_k)} comments per 1k views`,
+      note: 'How much an episode gets people talking. Labelled: the six highest.'},
+    mood: {label: 'Comment sentiment', get: (r) => r.mood, tick: d3.format('.1f'), hi: topBy((r) => r.mood, 5), lo: botBy((r) => r.mood, 3), tip: (r) => `${d3.format('+.2f')(r.mood)} average comment sentiment`,
+      note: 'Average VADER score of each episode\'s top comments. Labelled: the five highest, and the three lowest in grey.'},
+    total: {label: 'Total views', get: (r) => r.views, log: true, hi: topBy((r) => r.views, 8), tip: (r) => `${fmtC.format(r.views)} views · ${fmtN(Math.round(r.vpd))}/day`,
+      note: 'Lifetime views per episode, on a log scale. Labelled: the eight most viewed.'},
+    minutes: {label: 'Video length', get: (r) => r.minutes, log: true, hi: topBy((r) => r.minutes, 4), lo: botBy((r) => r.minutes, 4), tip: (r) => `${Math.round(r.minutes)} min`,
+      note: 'Minutes, on a log scale. Labelled: the four longest, and the four shortest in grey.'}
+  };
+  let metric = 'vpd';
+  const scatter = () => {
+    document.getElementById('metric-note').textContent = 'Each dot is an episode. ' + plots[metric].note;
+    metricScatter('c_scatter', plots[metric]);
+  };
+  const sel = document.getElementById('metric');
+  sel.replaceChildren(...Object.entries(plots).map(([k, p]) => { const o = el('option', '', p.label); o.value = k; return o; }));
+  sel.addEventListener('change', () => { metric = sel.value; scatter(); });
 
   function lenChart() {
     const host = document.getElementById('len'); host.querySelector('svg')?.remove();
@@ -243,7 +289,7 @@ function init(data) {
 
     // comment mood
     const ok = rows.slice().sort((a, b) => b.mood - a.mood);
-    const mr = (r) => barRow(short(r.title), r.mood, d3.format('+.2f')(r.mood), r.mood >= 0.4 ? css('--accent') : css('--dim'));
+    const mr = (r) => barRow(nm(r), r.mood, d3.format('+.2f')(r.mood), r.mood >= 0.4 ? css('--accent') : css('--dim'));
     document.getElementById('mood').replaceChildren(...ok.slice(0, 6).map(mr), el('div', 'bsep'), ...ok.slice(-6).map(mr));
   }
 
